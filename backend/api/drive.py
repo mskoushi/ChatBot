@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/drive", tags=["drive"])
 class ConnectRequest(BaseModel):
     folder_url: str
     session_id: str | None = None
+    access_token: str | None = None
 
 
 class FileInfo(BaseModel):
@@ -58,13 +59,14 @@ async def connect_folder(
                    "(e.g. https://drive.google.com/drive/folders/...).",
         )
 
-    if not settings.google_drive_api_key:
+    access_token = req.access_token or ""
+    if not access_token and not settings.google_drive_api_key:
         raise HTTPException(
             status_code=500,
-            detail="GOOGLE_DRIVE_API_KEY is not configured. Check your .env file.",
+            detail="Neither Google OAuth Access Token nor GOOGLE_DRIVE_API_KEY is configured.",
         )
 
-    drive = DriveClient(settings.google_drive_api_key)
+    drive = DriveClient(api_key=settings.google_drive_api_key, access_token=access_token)
 
     try:
         folder_name = drive.get_folder_name(folder_id)
@@ -83,7 +85,7 @@ async def connect_folder(
             detail=(
                 "No PDF files were found in this folder. "
                 "Make sure the folder contains PDF documents and is shared as "
-                "'Anyone with the link can view'."
+                "'Anyone with the link can view' or authorize with Google."
             ),
         )
 
@@ -98,6 +100,7 @@ async def connect_folder(
     # Reset session state for the new folder
     session.folder_id = folder_id
     session.folder_name = folder_name
+    session.access_token = access_token
     session.available_files = files
     session.selected_files = {}
     session.history = []

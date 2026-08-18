@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 class SelectRequest(BaseModel):
     session_id: str
     file_ids: list[str]  # Google Drive file IDs
+    access_token: str | None = None
 
 
 class SelectResponse(BaseModel):
@@ -64,7 +65,8 @@ async def select_documents(
             status_code=500, detail="GEMINI_API_KEY is not configured. Check your .env file."
         )
 
-    drive = DriveClient(settings.google_drive_api_key)
+    access_token = req.access_token or session.access_token or ""
+    drive = DriveClient(api_key=settings.google_drive_api_key, access_token=access_token)
     gemini = GeminiClient(settings.gemini_api_key, settings.gemini_model)
 
     # Clean up any previously uploaded Gemini files

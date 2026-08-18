@@ -10,10 +10,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # Gemini / Google AI Studio
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-3.6-flash"
 
-    # Google Drive (API key with Drive API enabled)
+    # Google Drive (API key with Drive API enabled or OAuth Client ID)
     google_drive_api_key: str = ""
+    google_client_id: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from typing import Any
 
 from google import genai
@@ -37,12 +38,20 @@ Example source format:
 - Record_003.pdf"""
 
 
+FALLBACK_MODELS = [
+    "gemini-3.6-flash",
+    "gemini-3.7-flash",
+    "gemini-3.5-flash",
+    "gemini-3.1-pro-preview",
+]
+
+
 class GeminiError(Exception):
     """Raised for Gemini API errors."""
 
 
 class GeminiClient:
-    def __init__(self, api_key: str, model: str = "gemini-2.0-flash") -> None:
+    def __init__(self, api_key: str, model: str = "gemini-3.6-flash") -> None:
         self.client = genai.Client(api_key=api_key)
         self.model = model
 
@@ -53,7 +62,6 @@ class GeminiClient:
         Upload PDF bytes to the Gemini Files API.
         Returns the file URI (valid for 48 hours).
         """
-        # Write to a temp file — the SDK accepts a file path
         suffix = ".pdf"
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(content)
@@ -82,7 +90,6 @@ class GeminiClient:
         Silently ignores errors (file may have already expired).
         """
         try:
-            # URI format: https://generativelanguage.googleapis.com/v1beta/files/<name>
             name = file_uri.rstrip("/").split("/")[-1]
             self.client.files.delete(name=name)
         except Exception:
@@ -97,19 +104,13 @@ class GeminiClient:
         file_uris: dict[str, str],  # {filename: gemini_file_uri}
     ) -> tuple[str, list[str]]:
         """
-        Generate a RAG response.
-
-        Strategy: Include all selected documents as file parts + conversation
-        history as text context + the new question in a single user turn.
-        This ensures Gemini always has the full document context.
-
-        Returns (answer_text, source_filenames).
+        Generate a RAG response with model fallback support.
         """
         parts: list[Any] = []
 
         # Prepend recent conversation history as text context
         if history:
-            recent = history[-10:]  # last 5 exchanges (10 messages)
+            recent = history[-10:]
             history_lines = []
             for msg in recent:
                 role = "User" if msg["role"] == "user" else "Assistant"
@@ -117,7 +118,7 @@ class GeminiClient:
             history_text = "\n\n".join(history_lines)
             parts.append(
                 types.Part.from_text(
-                    f"[Previous conversation for context]\n{history_text}\n\n---\n\n"
+                    text=f"[Previous conversation for context]\n{history_text}\n\n---\n\n"
                 )
             )
 
@@ -128,27 +129,41 @@ class GeminiClient:
             )
 
         # Add the user's question
-        parts.append(types.Part.from_text(f"Question: {question}"))
+        parts.append(types.Part.from_text(text=f"Question: {question}"))
 
-        try:
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=[types.Content(role="user", parts=parts)],
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    temperature=0.05,
-                    max_output_tokens=4096,
-                ),
-            )
-            answer = response.text or "I could not generate a response."
-        except Exception as exc:
-            raise GeminiError(f"Gemini API error: {exc}") from exc
+        # Candidate models list with primary model first
+        models_to_try = [self.model] + [m for m in FALLBACK_MODELS if m != self.model]
 
-        # Determine which files were referenced
-        filenames = list(file_uris.keys())
-        sources = _extract_sources(answer, filenames)
+        last_error = None
+        for model_name in models_to_try:
+            # Retry up to 3 times with backoff for quota/server errors
+            for attempt in range(3):
+                try:
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        contents=parts,
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT,
+                            temperature=0.05,
+                            max_output_tokens=4096,
+                        ),
+                    )
+                    answer = response.text or "I could not generate a response."
+                    filenames = list(file_uris.keys())
+                    sources = _extract_sources(answer, filenames)
+                    return answer, sources
+                except Exception as exc:
+                    err_str = str(exc)
+                    last_error = exc
+                    # Retry on quota (429) or server unavailable (503) errors
+                    if ("429" in err_str or "503" in err_str or "RESOURCE_EXHAUSTED" in err_str or "UNAVAILABLE" in err_str):
+                        wait = 5 * (attempt + 1)  # 5s, 10s, 15s
+                        time.sleep(wait)
+                        continue
+                    # For any other error, skip to next model
+                    break
 
-        return answer, sources
+        raise GeminiError(f"Gemini API error: {last_error}") from last_error
 
 
 # ── Source extraction helper ───────────────────────────────────────────────────
@@ -160,5 +175,4 @@ def _extract_sources(answer: str, filenames: list[str]) -> list[str]:
         f for f in filenames
         if f.lower() in answer_lower or f.lower().replace(".pdf", "") in answer_lower
     ]
-    # If none explicitly mentioned, return all (Gemini used all as context)
     return mentioned if mentioned else filenames

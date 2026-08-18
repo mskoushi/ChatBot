@@ -21,10 +21,14 @@ class DriveError(Exception):
 
 
 class DriveClient:
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str = "", access_token: str = "") -> None:
         self.api_key = api_key
+        self.access_token = access_token
         self._session = requests.Session()
-        self._session.params = {"key": api_key}  # type: ignore[assignment]
+        if access_token:
+            self._session.headers.update({"Authorization": f"Bearer {access_token}"})
+        elif api_key:
+            self._session.params = {"key": api_key}  # type: ignore[assignment]
 
     # ── URL parsing ────────────────────────────────────────────────────────────
 

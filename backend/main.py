@@ -53,10 +53,21 @@ app.include_router(documents_router)
 app.include_router(chat_router)
 
 
+from config import get_settings
+
 @app.get("/api/health", tags=["meta"])
 async def health() -> dict:
     """Liveness probe."""
     return {"status": "ok", "version": "1.0.0"}
+
+
+@app.get("/api/config", tags=["meta"])
+async def config() -> dict:
+    """Public frontend configuration (Client ID, etc.)."""
+    settings = get_settings()
+    return {
+        "google_client_id": settings.google_client_id,
+    }
 
 
 # ── Frontend static files ──────────────────────────────────────────────────────

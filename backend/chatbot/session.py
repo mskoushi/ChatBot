@@ -24,6 +24,7 @@ class ConversationSession:
     # Google Drive info
     folder_id: str = ""
     folder_name: str = ""
+    access_token: str = ""
 
     # Available files from Drive: list of {id, name, mimeType, size, modifiedTime}
     available_files: list[dict[str, Any]] = field(default_factory=list)
