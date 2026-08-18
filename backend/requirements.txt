@@ -1,0 +1,19 @@
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+
+# Config
+pydantic>=2.7.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+
+# Google Gemini (new unified SDK — google-generativeai is deprecated)
+google-genai>=1.0.0
+
+# Google Drive (via HTTP — no heavy auth library needed for public folders)
+requests>=2.32.0
+httpx>=0.27.0
+
+# Async support
+aiofiles>=24.1.0
